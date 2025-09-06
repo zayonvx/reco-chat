@@ -1,8 +1,7 @@
 import express from 'express'
 import crypto from 'crypto'
+import http from 'http'
 import { WebSocketServer } from 'ws'
-
-const wss = new WebSocketServer({ noServer: true })
 
 const app = express()
 app.disable('x-powered-by')
@@ -14,16 +13,12 @@ const tokens = new Map()
 const roomPeers = new Map()
 const sockets = new WeakMap()
 
-
-const server = app.listen(process.env.PORT || 3000, () => {
-    console.log('listening on', server.address().port)
-})
-
 const HOST = process.env.HOST || ''
 const TOKEN_WINDOW_MS = 5 * 60 * 1000
 const MEETING_TTL_MS = 2 * 60 * 60 * 1000
 const MAX_PARTICIPANTS = Number(process.env.MAX_PARTICIPANTS || 3)
 const ADMIN_SECRET = process.env.ADMIN_SECRET || ''
+const PORT = process.env.PORT || 3000
 
 const rid = (n = 16) => crypto.randomBytes(n).toString('base64url')
 const newRoom = () => 'r-' + crypto.randomBytes(8).toString('hex')
@@ -42,26 +37,23 @@ app.get('/', (req, res) => {
 <html><head><meta charset="utf-8"><title>Meeting Admin</title></head>
 <body>
 <h1>Admin panel (простая)</h1>
-<form id="createMeeting">
-  <button type="submit">Создать встречу (2 часа)</button>
-</form>
+<form id="createMeeting"><button type="submit">Создать встречу (2 часа)</button></form>
 <pre id="meetingOut"></pre>
 <hr>
 <form id="inviteForm">
-  Meeting ID: <input name="meetingId" id="meetingId"> <button type="submit">Выдать ссылку</button>
+  Meeting ID: <input name="meetingId" id="meetingId">
+  <button type="submit">Выдать ссылку</button>
 </form>
 <pre id="inviteOut"></pre>
 <script>
 const secret = localStorage.getItem('ADMIN_SECRET') || prompt('Введите ADMIN_SECRET')
 localStorage.setItem('ADMIN_SECRET', secret)
 const headers = { 'Authorization': 'Bearer ' + secret, 'Content-Type': 'application/json' }
-
 createMeeting.onsubmit = async e => {
   e.preventDefault()
   const r = await fetch('/admin/meetings', { method:'POST', headers })
   meetingOut.textContent = await r.text()
 }
-
 inviteForm.onsubmit = async e => {
   e.preventDefault()
   const id = document.getElementById('meetingId').value
@@ -80,7 +72,6 @@ app.post('/admin/meetings', (req, res) => {
     meetings.set(meetingId, m)
     res.json({ meetingId, room: m.room, createdAt, expiresAt: m.expiresAt, maxParticipants: m.maxParticipants })
 })
-
 
 app.post('/admin/meetings/:id/invite', (req, res) => {
     if (ensureAdmin(req, res) !== true) return
@@ -114,21 +105,27 @@ app.get('/r/:token', (req, res) => {
     res.redirect(302, `/call.html?t=${encodeURIComponent(t)}`)
 })
 
-
-
-
 app.get('/healthz', (req, res) => res.send('ok'))
-const PORT = process.env.PORT || 3000
+
+const wss = new WebSocketServer({ noServer: true })
+
+function broadcast(meetingId, payload, exceptId = null) {
+    const peers = roomPeers.get(meetingId)
+    if (!peers) return
+    const data = JSON.stringify(payload)
+    for (const [id, ws] of peers) if (id !== exceptId && ws.readyState === 1) ws.send(data)
+}
+
+const server = http.createServer(app)
 
 server.on('upgrade', (req, socket, head) => {
-    if (!req.url.startsWith('/ws')) return socket.destroy()
+    if (!req.url || !req.url.startsWith('/ws')) return socket.destroy()
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
 })
 
 wss.on('connection', (ws, req) => {
     const url = new URL(req.url, 'http://x')
     const token = url.searchParams.get('token')
-
     const tk = token && tokens.get(token)
     if (!tk) return ws.close(4401, 'token invalid')
 
@@ -148,12 +145,10 @@ wss.on('connection', (ws, req) => {
 
     const others = [...peers.keys()].filter(id => id !== peerId)
     ws.send(JSON.stringify({ type: 'hello', peerId, peers: others }))
-
     broadcast(meetingId, { type: 'peer-join', peerId }, peerId)
 
     ws.on('message', (buf) => {
-        let msg
-        try { msg = JSON.parse(buf.toString()) } catch { return }
+        let msg; try { msg = JSON.parse(buf.toString()) } catch { return }
         if (msg.type === 'signal' && msg.target && peers.has(msg.target)) {
             peers.get(msg.target)?.send(JSON.stringify({ type: 'signal', from: peerId, data: msg.data }))
         }
@@ -166,12 +161,4 @@ wss.on('connection', (ws, req) => {
     })
 })
 
-function broadcast(meetingId, payload, exceptId = null) {
-    const peers = roomPeers.get(meetingId)
-    if (!peers) return
-    const data = JSON.stringify(payload)
-    for (const [id, ws] of peers) if (id !== exceptId && ws.readyState === 1) ws.send(data)
-}
-
-app.listen(PORT, () => console.log('listening on', PORT))
-
+server.listen(PORT, () => console.log('listening on', PORT))
