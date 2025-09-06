@@ -1,5 +1,6 @@
 <!doctype html>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Admin</title>
 <link rel="stylesheet" href="/styles.css">
 
@@ -7,15 +8,15 @@
     <div class="card">
         <h1>Admin</h1>
 
-        <h2>Секрет</h2>
+        <h2>Pass</h2>
         <div class="row">
             <div class="col"><input id="secret" type="password" placeholder="ADMIN_SECRET"></div>
-            <div class="col" style="max-width:200px"><button id="set" class="btn">Сохранить</button></div>
+            <div class="col" style="max-width:200px"><button id="set" class="btn">Save</button></div>
         </div>
 
         <hr>
 
-        <h2>Создать встречу (2 часа)</h2>
+        <h2>Создать встречу</h2>
         <div class="actions"><button id="newMeeting" class="btn">Создать</button></div>
         <pre id="meetingOut" class="mono"></pre>
 
@@ -24,10 +25,12 @@
         <h2>Выдать персональную ссылку</h2>
         <div class="row">
             <div class="col"><input id="meetingId" type="text" placeholder="meetingId"></div>
-            <div class="col" style="max-width:300px" class="actions">
-                <button id="invite" class="btn">Сгенерировать</button>
-                <button id="copyUrl" class="btn secondary" disabled>Copy URL</button>
-                <button id="copyToken" class="btn ghost" disabled>Copy token</button>
+            <div class="col">
+                <div class="actions">
+                    <button id="invite" class="btn">Сгенерировать</button>
+                    <button id="copyUrl" class="btn secondary" disabled>Copy URL</button>
+                    <button id="copyToken" class="btn ghost" disabled>Copy token</button>
+                </div>
             </div>
         </div>
         <pre id="inviteOut" class="mono"></pre>
