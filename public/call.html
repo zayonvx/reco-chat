@@ -2,18 +2,24 @@
 <meta charset="utf-8" />
 <title>Call</title>
 <h1>Audio Call</h1>
-<button id="mute">Mute</button>
-<button id="leave">Leave</button>
+
+<button id="join">Join call</button>
+<button id="mute" disabled>Mute</button>
+<button id="leave" disabled>Leave</button>
 <div id="status"></div>
+<div id="logs" style="white-space:pre-wrap;font-family:monospace"></div>
 
 <script>
+    const log = (...a)=>{ const l=document.getElementById('logs'); l.textContent += a.join(' ')+'\n'; console.log(...a) }
+
     const params = new URLSearchParams(location.search)
     const token = params.get('t')
-    if (!token) document.getElementById('status').textContent = 'No token'
+    const statusEl = document.getElementById('status')
+    if (!token) statusEl.textContent = 'No token'
 
     const peers = new Map()
     const streams = new Map()
-    let localStream
+    let localStream, ws
 
     const pcConfig = {
         iceServers: [
@@ -22,96 +28,126 @@
         ]
     }
 
-    start()
+    document.getElementById('join').onclick = start
 
     async function start() {
-        document.getElementById('status').textContent = 'Requesting mic...'
+        document.getElementById('join').disabled = true
+        statusEl.textContent = 'Requesting mic...'
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                video: false
+            })
         } catch (e) {
-            document.getElementById('status').textContent = 'Mic denied'
-            throw e
+            statusEl.textContent = 'Mic denied'
+            log('getUserMedia error:', e)
+            return
         }
 
-        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws?token=' + encodeURIComponent(token))
+        ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws?token=' + encodeURIComponent(token))
+        ws.onopen = ()=> log('ws open')
+        ws.onclose = ()=> { log('ws close'); statusEl.textContent='Disconnected' }
 
         let selfId = null
         ws.onmessage = async (ev) => {
             const msg = JSON.parse(ev.data)
             if (msg.type === 'hello') {
                 selfId = msg.peerId
-                document.getElementById('status').textContent = 'Connected. Peers: ' + msg.peers.length
+                statusEl.textContent = 'Connected. Peers: ' + msg.peers.length
                 for (const other of msg.peers) await connectTo(other, true)
+                document.getElementById('mute').disabled = false
+                document.getElementById('leave').disabled = false
             } else if (msg.type === 'peer-join') {
-                await connectTo(msg.peerId, true) // новый — тоже инициируем
+                log('peer-join', msg.peerId)
+                await connectTo(msg.peerId, false)
             } else if (msg.type === 'peer-leave') {
+                log('peer-leave', msg.peerId)
                 closePeer(msg.peerId)
             } else if (msg.type === 'signal') {
                 await handleSignal(msg.from, msg.data)
             }
         }
 
-        ws.onclose = () => {
-            document.getElementById('status').textContent = 'Disconnected'
-            for (const id of peers.keys()) closePeer(id)
-        }
-
-        async function connectTo(peerId, isInitiator) {
-            if (peers.has(peerId)) return peers.get(peerId)
-
-            const pc = new RTCPeerConnection(pcConfig)
-            peers.set(peerId, pc)
-            localStream.getTracks().forEach(t => pc.addTrack(t, localStream))
-
-            pc.ontrack = (e) => {
-                let s = streams.get(peerId)
-                if (!s) {
-                    s = new Audio()
-                    s.autoplay = true
-                    streams.set(peerId, s)
-                    document.body.appendChild(s)
-                }
-                s.srcObject = e.streams[0]
-            }
-            pc.onicecandidate = (e) => {
-                if (e.candidate) ws.send(JSON.stringify({ type: 'signal', target: peerId, data: { candidate: e.candidate } }))
-            }
-
-            if (isInitiator) {
-                const offer = await pc.createOffer()
-                await pc.setLocalDescription(offer)
-                ws.send(JSON.stringify({ type: 'signal', target: peerId, data: { sdp: pc.localDescription } }))
-            }
-            return pc
-        }
-
-        async function handleSignal(from, data) {
-            let pc = peers.get(from)
-            if (!pc) pc = await connectTo(from, false)
-
-            if (data.sdp) {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-                if (data.sdp.type === 'offer') {
-                    const answer = await pc.createAnswer()
-                    await pc.setLocalDescription(answer)
-                    ws.send(JSON.stringify({ type: 'signal', target: from, data: { sdp: pc.localDescription } }))
-                }
-            } else if (data.candidate) {
-                try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)) } catch {}
-            }
-        }
-
-        function closePeer(id) {
-            const pc = peers.get(id)
-            if (pc) { pc.getSenders().forEach(s => s.track?.stop()); pc.close(); peers.delete(id) }
-            const el = streams.get(id); if (el) { el.srcObject = null; el.remove(); streams.delete(id) }
-        }
-
         document.getElementById('mute').onclick = () => {
-            const on = localStream.getAudioTracks()[0].enabled
-            localStream.getAudioTracks()[0].enabled = !on
-            document.getElementById('mute').textContent = on ? 'Unmute' : 'Mute'
+            const tr = localStream.getAudioTracks()[0]
+            tr.enabled = !tr.enabled
+            document.getElementById('mute').textContent = tr.enabled ? 'Mute' : 'Unmute'
         }
-        document.getElementById('leave').onclick = () => window.close() || (location.href = '/')
+        document.getElementById('leave').onclick = () => {
+            try { ws && ws.close() } catch {}
+            for (const id of peers.keys()) closePeer(id)
+            location.href = '/'
+        }
+    }
+
+    async function connectTo(peerId, isInitiator) {
+        if (peers.has(peerId)) return peers.get(peerId)
+
+        const pc = new RTCPeerConnection(pcConfig)
+        peers.set(peerId, pc)
+
+        pc.oniceconnectionstatechange = ()=> log('iceState', peerId, pc.iceConnectionState)
+        pc.onconnectionstatechange = ()=> log('connState', peerId, pc.connectionState)
+
+        localStream.getTracks().forEach(t => pc.addTrack(t, localStream))
+
+        pc.ontrack = (e) => {
+            let a = streams.get(peerId)
+            if (!a) {
+                a = new Audio()
+                a.autoplay = true
+                a.playsInline = true
+                streams.set(peerId, a)
+                document.body.appendChild(a)
+            }
+            a.srcObject = e.streams[0]
+            a.play().catch(err => log('audio.play blocked', err?.name || err))
+        }
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate) ws.send(JSON.stringify({ type: 'signal', target: peerId, data: { candidate: e.candidate } }))
+        }
+
+        if (isInitiator) {
+            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false })
+            await pc.setLocalDescription(offer)
+            ws.send(JSON.stringify({ type: 'signal', target: peerId, data: { sdp: pc.localDescription } }))
+        }
+        return pc
+    }
+
+    async function handleSignal(from, data) {
+        let pc = peers.get(from)
+        if (!pc) pc = await connectTo(from, false)
+
+        if (data.sdp) {
+            const desc = new RTCSessionDescription(data.sdp)
+
+            if (desc.type === 'offer' && pc.signalingState !== 'stable') {
+                try { await pc.setLocalDescription({ type: 'rollback' }) } catch {}
+            }
+
+            if (desc.type === 'answer' && pc.signalingState !== 'have-local-offer') {
+                return
+            }
+
+            await pc.setRemoteDescription(desc)
+
+            if (desc.type === 'offer') {
+                const answer = await pc.createAnswer()
+                await pc.setLocalDescription(answer)
+                ws.send(JSON.stringify({ type: 'signal', target: from, data: { sdp: pc.localDescription } }))
+            }
+        } else if (data.candidate) {
+            try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)) }
+            catch (e) { log('addIceCandidate error', e) }
+        }
+    }
+
+
+    function closePeer(id) {
+        const pc = peers.get(id)
+        if (pc) { pc.getSenders().forEach(s => s.track?.stop()); pc.close(); peers.delete(id) }
+        const el = streams.get(id); if (el) { el.srcObject = null; el.remove(); streams.delete(id) }
     }
 </script>
