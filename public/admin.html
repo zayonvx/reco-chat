@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Admin</title>
+<h1>Admin</h1>
+<label>ADMIN_SECRET: <input id="secret" type="password" /></label>
+<button id="set">Set</button>
+<hr/>
+<h2>Create meeting (2h)</h2>
+<button id="newMeeting">Create</button>
+<pre id="meetingOut"></pre>
+<hr/>
+<h2>Issue invite</h2>
+<label>meetingId: <input id="meetingId" /></label>
+<button id="invite">Invite</button>
+<pre id="inviteOut"></pre>
+<script>
+    let SECRET = localStorage.getItem('SECRET') || ''
+    document.getElementById('secret').value = SECRET
+    document.getElementById('set').onclick = () => {
+        SECRET = document.getElementById('secret').value
+        localStorage.setItem('SECRET', SECRET)
+    }
+    async function api(method, url) {
+        const res = await fetch(url, {method, headers:{Authorization:'Bearer '+SECRET}})
+        return res.text()
+    }
+    document.getElementById('newMeeting').onclick = async () => {
+        document.getElementById('meetingOut').textContent = await api('POST','/admin/meetings')
+    }
+    document.getElementById('invite').onclick = async () => {
+        const id=document.getElementById('meetingId').value
+        document.getElementById('inviteOut').textContent = await api('POST','/admin/meetings/'+id+'/invite')
+    }
+</script>
