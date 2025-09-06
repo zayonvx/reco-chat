@@ -1,17 +1,29 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>Подключится</title>
-<h1>Подключится по токену</h1>
-<form id="f">
-    <input id="t" placeholder="paste token here" style="width:420px" />
-    <button>Го</button>
-</form>
-<div id="msg"></div>
+<title>Подключиться</title>
+<link rel="stylesheet" href="/styles.css">
+
+<div class="container">
+    <div class="card">
+        <h1>Подключиться по токену</h1>
+        <div class="row">
+            <div class="col">
+                <input id="t" type="text" placeholder="Вставьте персональный токен" />
+            </div>
+            <div class="col" style="max-width:180px">
+                <button class="btn" id="go">Перейти</button>
+            </div>
+        </div>
+        <div id="msg" class="note" style="margin-top:10px"></div>
+        <hr>
+        <div class="note">Токен действует 5 минут с момента первого входа.</div>
+    </div>
+</div>
+
 <script>
-    f.onsubmit = (e) => {
-        e.preventDefault()
-        const t=document.getElementById('t').value.trim()
-        if (!t) return
-        location.href = '/r/' + encodeURIComponent(t)
+    document.getElementById('go').onclick = () => {
+        const v = document.getElementById('t').value.trim()
+        if (!v) { document.getElementById('msg').textContent = 'Введите токен'; return }
+        location.href = '/r/' + encodeURIComponent(v)
     }
 </script>

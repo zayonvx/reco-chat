@@ -1,13 +1,22 @@
 <!doctype html>
 <meta charset="utf-8" />
 <title>Call</title>
-<h1>Audio Call</h1>
+<link rel="stylesheet" href="/styles.css">
 
-<button id="join">Join call</button>
-<button id="mute" disabled>Mute</button>
-<button id="leave" disabled>Leave</button>
-<div id="status"></div>
-<div id="logs" style="white-space:pre-wrap;font-family:monospace"></div>
+<div class="container">
+    <div class="card">
+        <h1>Audio Call</h1>
+        <div class="actions" style="margin:10px 0 12px">
+            <button id="join" class="btn">🔊 Join call</button>
+            <button id="mute" class="btn secondary" disabled>Мик выключить</button>
+            <button id="leave" class="btn danger" disabled>Выйти</button>
+            <span class="tag" id="net">ICE: —</span>
+        </div>
+        <div id="status" class="note">Готово к подключению…</div>
+        <hr>
+        <div id="logs" class="mono"></div>
+    </div>
+</div>
 
 <script>
     const log = (...a)=>{ const l=document.getElementById('logs'); l.textContent += a.join(' ')+'\n'; console.log(...a) }
@@ -15,6 +24,7 @@
     const params = new URLSearchParams(location.search)
     const token = params.get('t')
     const statusEl = document.getElementById('status')
+    const netTag = document.getElementById('net')
     if (!token) statusEl.textContent = 'Нет токена'
 
     const peers = new Map()
@@ -32,14 +42,14 @@
 
     async function start() {
         document.getElementById('join').disabled = true
-        statusEl.textContent = 'Ожидаем микрофон'
+        statusEl.textContent = 'Ожидаем доступ к микрофону…'
         try {
             localStream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
                 video: false
             })
         } catch (e) {
-            statusEl.textContent = 'Микрофон отклонен'
+            statusEl.textContent = 'Микрофон отклонён'
             log('getUserMedia error:', e)
             return
         }
@@ -59,7 +69,7 @@
                 document.getElementById('leave').disabled = false
             } else if (msg.type === 'peer-join') {
                 log('peer-join', msg.peerId)
-                await connectTo(msg.peerId, false)
+                await connectTo(msg.peerId, false) // ждём offer от нового — без glare
             } else if (msg.type === 'peer-leave') {
                 log('peer-leave', msg.peerId)
                 closePeer(msg.peerId)
@@ -85,6 +95,12 @@
 
         const pc = new RTCPeerConnection(pcConfig)
         peers.set(peerId, pc)
+
+        pc.oniceconnectionstatechange = ()=> {
+            log('iceState', peerId, pc.iceConnectionState)
+            netTag.textContent = 'ICE: ' + pc.iceConnectionState
+        }
+        pc.onconnectionstatechange = ()=> log('connState', peerId, pc.connectionState)
 
         localStream.getTracks().forEach(t => pc.addTrack(t, localStream))
 
@@ -123,7 +139,6 @@
             if (desc.type === 'offer' && pc.signalingState !== 'stable') {
                 try { await pc.setLocalDescription({ type: 'rollback' }) } catch {}
             }
-
             if (desc.type === 'answer' && pc.signalingState !== 'have-local-offer') {
                 return
             }
@@ -140,7 +155,6 @@
             catch (e) { log('addIceCandidate error', e) }
         }
     }
-
 
     function closePeer(id) {
         const pc = peers.get(id)

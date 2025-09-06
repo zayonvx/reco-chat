@@ -1,34 +1,76 @@
 <!doctype html>
 <meta charset="utf-8" />
 <title>Admin</title>
-<h1>Admin</h1>
-<label>ADMIN_SECRET: <input id="secret" type="password" /></label>
-<button id="set">Set</button>
-<hr/>
-<h2>Create meeting (2h)</h2>
-<button id="newMeeting">Create</button>
-<pre id="meetingOut"></pre>
-<hr/>
-<h2>Issue invite</h2>
-<label>meetingId: <input id="meetingId" /></label>
-<button id="invite">Invite</button>
-<pre id="inviteOut"></pre>
+<link rel="stylesheet" href="/styles.css">
+
+<div class="container">
+    <div class="card">
+        <h1>Admin</h1>
+
+        <h2>Секрет</h2>
+        <div class="row">
+            <div class="col"><input id="secret" type="password" placeholder="ADMIN_SECRET"></div>
+            <div class="col" style="max-width:200px"><button id="set" class="btn">Сохранить</button></div>
+        </div>
+
+        <hr>
+
+        <h2>Создать встречу (2 часа)</h2>
+        <div class="actions"><button id="newMeeting" class="btn">Создать</button></div>
+        <pre id="meetingOut" class="mono"></pre>
+
+        <hr>
+
+        <h2>Выдать персональную ссылку</h2>
+        <div class="row">
+            <div class="col"><input id="meetingId" type="text" placeholder="meetingId"></div>
+            <div class="col" style="max-width:300px" class="actions">
+                <button id="invite" class="btn">Сгенерировать</button>
+                <button id="copyUrl" class="btn secondary" disabled>Copy URL</button>
+                <button id="copyToken" class="btn ghost" disabled>Copy token</button>
+            </div>
+        </div>
+        <pre id="inviteOut" class="mono"></pre>
+
+        <hr>
+
+        <div class="note">Встреча истекает через 2 часа после создания. Каждая ссылка действительна 5 минут после первого открытия.</div>
+    </div>
+</div>
+
 <script>
     let SECRET = localStorage.getItem('SECRET') || ''
-    document.getElementById('secret').value = SECRET
+    const secretInput = document.getElementById('secret')
+    secretInput.value = SECRET
+
     document.getElementById('set').onclick = () => {
-        SECRET = document.getElementById('secret').value
+        SECRET = secretInput.value
         localStorage.setItem('SECRET', SECRET)
     }
+
     async function api(method, url) {
-        const res = await fetch(url, {method, headers:{Authorization:'Bearer '+SECRET}})
-        return res.text()
+        const res = await fetch(url, { method, headers:{ Authorization:'Bearer '+SECRET } })
+        const txt = await res.text()
+        try { return JSON.parse(txt) } catch { return txt }
     }
+
     document.getElementById('newMeeting').onclick = async () => {
-        document.getElementById('meetingOut').textContent = await api('POST','/admin/meetings')
+        const r = await api('POST','/admin/meetings')
+        document.getElementById('meetingOut').textContent = JSON.stringify(r, null, 2)
+        if (r && r.meetingId) document.getElementById('meetingId').value = r.meetingId
     }
+
+    const copyUrlBtn = document.getElementById('copyUrl')
+    const copyTokenBtn = document.getElementById('copyToken')
+    let lastInvite = null
+
     document.getElementById('invite').onclick = async () => {
-        const id=document.getElementById('meetingId').value
-        document.getElementById('inviteOut').textContent = await api('POST','/admin/meetings/'+id+'/invite')
+        const id = document.getElementById('meetingId').value.trim()
+        if (!id) return
+        const r = await api('POST', '/admin/meetings/'+id+'/invite')
+        document.getElementById('inviteOut').textContent = JSON.stringify(r, null, 2)
+        if (r && r.url) { lastInvite = r; copyUrlBtn.disabled = false; copyTokenBtn.disabled = false }
     }
+    copyUrlBtn.onclick = async ()=>{ if (!lastInvite) return; await navigator.clipboard.writeText(lastInvite.url); copyUrlBtn.textContent='✓ Copied'; setTimeout(()=>copyUrlBtn.textContent='Copy URL',900) }
+    copyTokenBtn.onclick = async ()=>{ if (!lastInvite) return; await navigator.clipboard.writeText(lastInvite.token); copyTokenBtn.textContent='✓ Copied'; setTimeout(()=>copyTokenBtn.textContent='Copy token',900) }
 </script>
