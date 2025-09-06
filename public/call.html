@@ -15,7 +15,7 @@
     const params = new URLSearchParams(location.search)
     const token = params.get('t')
     const statusEl = document.getElementById('status')
-    if (!token) statusEl.textContent = 'No token'
+    if (!token) statusEl.textContent = 'Нет токена'
 
     const peers = new Map()
     const streams = new Map()
@@ -32,28 +32,28 @@
 
     async function start() {
         document.getElementById('join').disabled = true
-        statusEl.textContent = 'Requesting mic...'
+        statusEl.textContent = 'Ожидаем микрофон'
         try {
             localStream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
                 video: false
             })
         } catch (e) {
-            statusEl.textContent = 'Mic denied'
+            statusEl.textContent = 'Микрофон отклонен'
             log('getUserMedia error:', e)
             return
         }
 
         ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws?token=' + encodeURIComponent(token))
         ws.onopen = ()=> log('ws open')
-        ws.onclose = ()=> { log('ws close'); statusEl.textContent='Disconnected' }
+        ws.onclose = ()=> { log('ws close'); statusEl.textContent='Отключен' }
 
         let selfId = null
         ws.onmessage = async (ev) => {
             const msg = JSON.parse(ev.data)
             if (msg.type === 'hello') {
                 selfId = msg.peerId
-                statusEl.textContent = 'Connected. Peers: ' + msg.peers.length
+                statusEl.textContent = 'Подключен. Собеседников: ' + msg.peers.length
                 for (const other of msg.peers) await connectTo(other, true)
                 document.getElementById('mute').disabled = false
                 document.getElementById('leave').disabled = false
@@ -71,7 +71,7 @@
         document.getElementById('mute').onclick = () => {
             const tr = localStream.getAudioTracks()[0]
             tr.enabled = !tr.enabled
-            document.getElementById('mute').textContent = tr.enabled ? 'Mute' : 'Unmute'
+            document.getElementById('mute').textContent = tr.enabled ? 'Мик выключить' : 'Мик включить'
         }
         document.getElementById('leave').onclick = () => {
             try { ws && ws.close() } catch {}
@@ -85,9 +85,6 @@
 
         const pc = new RTCPeerConnection(pcConfig)
         peers.set(peerId, pc)
-
-        pc.oniceconnectionstatechange = ()=> log('iceState', peerId, pc.iceConnectionState)
-        pc.onconnectionstatechange = ()=> log('connState', peerId, pc.connectionState)
 
         localStream.getTracks().forEach(t => pc.addTrack(t, localStream))
 
